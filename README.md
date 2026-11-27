@@ -18,7 +18,7 @@ Multiple models are placed side by side, at the same scale, each in its own colo
 - **Left mouse button**: rotate
 - **Right mouse button**: pan
 - **Scroll wheel**: zoom
-- Buttons: Clear, Overlay, Dimensions, Measure, Wireframe, Grid, Axes, Reset view
+- Buttons: Clear, Overlay, Dimensions, Measure, Lay flat, Overhangs, Wireframe, Grid, Axes, Reset view
 
 **Dimensions** draws a bounding box around each model with dimension lines and
 labels for its length (X), width (Y) and height (Z) in mm.
@@ -28,6 +28,20 @@ them, plus the difference along X, Y and Z. A point snaps to a nearby corner of
 the mesh, so you can measure edges precisely. You can still rotate and zoom while
 measuring, add as many measurements as you like, and press **Esc** to cancel a
 half-finished one. Turning Measure off clears all measurements.
+
+### Preparing a print
+
+- **Overhangs** colors every surface steeper than 45° red: those are the places
+  that need support. The model panel shows the overhang area in cm². Surfaces
+  resting on the bed are not counted.
+- **Lay flat**: turn it on and click a face; the model rotates so that face lies
+  on the bed. Combine it with Overhangs to find an orientation with as little red
+  as possible. The **↺** button in the model panel restores the original
+  orientation.
+- **Printer** (dropdown at the end of the toolbar): pick a printer (Bambu Lab A1
+  mini, A1/P1S/X1C, Prusa MK4, Prusa MINI, Creality Ender 3, or a custom size) to
+  show its build volume. The model panel says per model whether it fits, also
+  when turned 90° on the bed.
 
 ### Comparing models
 

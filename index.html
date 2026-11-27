@@ -38,6 +38,10 @@
   body.measuring #view canvas { cursor:crosshair; }
   #hint { flex-basis:100%; color:#ffd54a; font-size:12px; padding:0 2px; }
   #hint[hidden] { display:none; }
+  #info .ok { color:#7fc28e; }
+  #info .bad { color:#ffb454; }
+  #info .overhang { color:#ff8a80; }
+  .bed-label { font:11px system-ui, sans-serif; color:#8ec5ff; background:#0b2540cc; padding:1px 6px; border-radius:4px; white-space:nowrap; }
   @media (max-width: 600px) {
     #bar { gap:6px; padding:6px; }
     button, label.btn, select { padding:5px 8px; font-size:13px; }
@@ -58,6 +62,8 @@
   <button id="overlay" title="Place all models on top of each other, semi-transparent">Overlay</button>
   <button id="dims" title="Show length, width and height of each model">Dimensions</button>
   <button id="measure" title="Click two points on a model to measure the distance">Measure</button>
+  <button id="layflat" title="Click a face to put it flat on the print bed">Lay flat</button>
+  <button id="overhangs" title="Color surfaces steeper than 45° that need support">Overhangs</button>
   <button id="wire">Wireframe</button>
   <button id="grid" class="on">Grid</button>
   <button id="axes">Axes</button>
@@ -70,7 +76,8 @@
     <option value="1.21">TPU</option>
     <option value="1.15">Resin</option>
   </select>
-  <div id="hint" hidden>Click two points on a model to measure · snaps to nearby corners · Esc cancels</div>
+  <select id="bed" title="Show a printer's build volume and check whether models fit"></select>
+  <div id="hint" hidden></div>
 </div>
 <div id="info">No model loaded</div>
 
@@ -214,26 +221,151 @@ function addModel(buffer, name) {
   const center = new THREE.Vector3(); bb.getCenter(center);
   // center in XY, put the bottom at Z=0
   geom.translate(-center.x, -center.y, -bb.min.z);
-  const material = new THREE.MeshStandardMaterial({
-    color: PALETTE[colorIndex++ % PALETTE.length], metalness: 0.1, roughness: 0.6, flatShading: true
-  });
+  const baseColor = new THREE.Color(PALETTE[colorIndex++ % PALETTE.length]);
+  const material = new THREE.MeshStandardMaterial({ color: baseColor, metalness: 0.1, roughness: 0.6, flatShading: true });
   const mesh = new THREE.Mesh(geom, material);
-  const dims = makeDimensions(size);
-  mesh.add(dims);
   scene.add(mesh);
-  const m = { name, mesh, size, dims, volume: meshVolume(geom) };
+  const m = {
+    name, mesh, size, baseColor, volume: meshVolume(geom), rotated: false, overhangArea: 0,
+    // original orientation, so "Lay flat" can be undone
+    original: { position: geom.attributes.position.array.slice(), normal: geom.attributes.normal?.array.slice() }
+  };
+  rebuildDims(m);
   applyMaterialMode(m);
-  updateDimsVisibility(m);
+  applyColors(m);
   models.push(m);
 }
 
-function removeModel(m) {
-  scene.remove(m.mesh); m.mesh.geometry.dispose(); m.mesh.material.dispose();
+function disposeDims(m) {
+  if (!m.dims) return;
   m.dims.traverse(o => {
     if (o.isCSS2DObject) o.element.remove();
     else if (o.geometry) o.geometry.dispose();
   });
+  m.mesh.remove(m.dims);
+}
+
+function rebuildDims(m) {
+  disposeDims(m);
+  m.dims = makeDimensions(m.size);
+  m.mesh.add(m.dims);
+  updateDimsVisibility(m);
+}
+
+function removeModel(m) {
+  scene.remove(m.mesh); m.mesh.geometry.dispose(); m.mesh.material.dispose();
+  disposeDims(m);
   models.splice(models.indexOf(m), 1);
+}
+
+// ---- overhangs: color downward-facing surfaces steeper than 45° ----
+let showOverhangs = false;
+const OVERHANG_NZ = -Math.sin(THREE.MathUtils.degToRad(45));   // normal.z below this = overhang
+const overhangColor = new THREE.Color(0xff3b30);
+
+function applyColors(m) {
+  const geom = m.mesh.geometry, mat = m.mesh.material;
+  if (!showOverhangs) {
+    mat.vertexColors = false; mat.color.copy(m.baseColor); mat.needsUpdate = true;
+    return;
+  }
+  const p = geom.attributes.position.array, n = p.length / 3;
+  let col = geom.getAttribute('color');
+  if (!col || col.count !== n) { col = new THREE.BufferAttribute(new Float32Array(n * 3), 3); geom.setAttribute('color', col); }
+  const c = col.array, bedEps = Math.max(0.05, m.size.z * 0.001);
+  let area = 0;
+  for (let i = 0; i < p.length; i += 9) {
+    const ux = p[i + 3] - p[i], uy = p[i + 4] - p[i + 1], uz = p[i + 5] - p[i + 2];
+    const vx = p[i + 6] - p[i], vy = p[i + 7] - p[i + 1], vz = p[i + 8] - p[i + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const len = Math.hypot(nx, ny, nz) || 1;
+    const minZ = Math.min(p[i + 2], p[i + 5], p[i + 8]);
+    // faces resting on the bed don't need support
+    const over = nz / len < OVERHANG_NZ && minZ > bedEps;
+    if (over) area += len / 2;
+    const k = over ? overhangColor : m.baseColor;
+    for (let j = 0; j < 9; j += 3) { c[i + j] = k.r; c[i + j + 1] = k.g; c[i + j + 2] = k.b; }
+  }
+  col.needsUpdate = true;
+  m.overhangArea = area;                 // mm²
+  mat.vertexColors = true; mat.color.set(0xffffff); mat.needsUpdate = true;
+}
+
+// ---- orientation: lay a face flat, or restore the original ----
+function recenter(m) {
+  const geom = m.mesh.geometry;
+  geom.computeBoundingBox();
+  const bb = geom.boundingBox, c = new THREE.Vector3();
+  bb.getCenter(c);
+  geom.translate(-c.x, -c.y, -bb.min.z);
+  geom.computeBoundingBox(); geom.computeBoundingSphere();
+  geom.boundingBox.getSize(m.size);
+}
+
+function afterReorient(m) {
+  recenter(m);
+  rebuildDims(m);
+  applyColors(m);
+  layout();
+}
+
+function layFlat(m, faceNormal) {
+  const q = new THREE.Quaternion().setFromUnitVectors(faceNormal.clone().normalize(), new THREE.Vector3(0, 0, -1));
+  m.mesh.geometry.applyQuaternion(q);
+  m.rotated = true;
+  afterReorient(m);
+}
+
+function restoreOrientation(m) {
+  const geom = m.mesh.geometry;
+  geom.attributes.position.array.set(m.original.position); geom.attributes.position.needsUpdate = true;
+  if (m.original.normal) { geom.attributes.normal.array.set(m.original.normal); geom.attributes.normal.needsUpdate = true; }
+  m.rotated = false;
+  afterReorient(m);
+}
+
+// ---- print bed ----
+const BEDS = [
+  { name: 'No printer' },
+  { name: 'Bambu Lab A1 mini', size: [180, 180, 180] },
+  { name: 'Bambu Lab A1 / P1S / X1C', size: [256, 256, 256] },
+  { name: 'Prusa MK4', size: [250, 210, 220] },
+  { name: 'Prusa MINI', size: [180, 180, 180] },
+  { name: 'Creality Ender 3', size: [220, 220, 250] },
+  { name: 'Custom…', custom: true },
+];
+let bed = null;                // { name, size: [w, d, h] }
+let bedGroup = null;
+
+function buildBed() {
+  if (bedGroup) {
+    bedGroup.traverse(o => { if (o.isCSS2DObject) o.element.remove(); else if (o.geometry) o.geometry.dispose(); });
+    scene.remove(bedGroup); bedGroup = null;
+  }
+  if (!bed) return;
+  const [w, d, h] = bed.size;
+  bedGroup = new THREE.Group();
+  const plate = new THREE.Mesh(new THREE.PlaneGeometry(w, d),
+    new THREE.MeshBasicMaterial({ color: 0x4ea1ff, transparent: true, opacity: 0.08, depthWrite: false, side: THREE.DoubleSide }));
+  plate.position.z = -0.01;
+  bedGroup.add(plate);
+  const volume = new THREE.LineSegments(new THREE.EdgesGeometry(new THREE.BoxGeometry(w, d, h)),
+    new THREE.LineBasicMaterial({ color: 0x4ea1ff, transparent: true, opacity: 0.35 }));
+  volume.position.z = h / 2;
+  bedGroup.add(volume);
+  const el = document.createElement('div');
+  el.className = 'bed-label';
+  el.textContent = `${bed.name} · ${w} × ${d} × ${h} mm`;
+  const label = new CSS2DObject(el);
+  label.position.set(0, -d / 2, 0);
+  bedGroup.add(label);
+  scene.add(bedGroup);
+}
+
+// fits when it fits as-is or turned 90° on the bed
+function fitsOnBed(m) {
+  const [w, d, h] = bed.size, { x, y, z } = m.size, e = 1e-6;
+  return z <= h + e && ((x <= w + e && y <= d + e) || (y <= w + e && x <= d + e));
 }
 
 function clearModels() {
@@ -280,8 +412,10 @@ function layout() {
   scene.add(grid);
   axes.scale.setScalar(maxDim / 50);
 
-  // bounding sphere of the whole scene, used to frame it on any screen shape
-  fitState = { target: new THREE.Vector3(0, 0, maxZ / 2), radius: 0.5 * Math.hypot(totalW, maxY, maxZ) };
+  // bounding sphere of the whole scene (including the print bed), used to frame it on any screen shape
+  const sceneW = bed ? Math.max(totalW, bed.size[0]) : totalW;
+  const sceneD = bed ? Math.max(maxY, bed.size[1]) : maxY;
+  fitState = { target: new THREE.Vector3(0, 0, maxZ / 2), radius: 0.5 * Math.hypot(sceneW, sceneD, maxZ) };
   resetView();
   renderInfo();
   document.getElementById('drop').style.display = 'none';
@@ -305,17 +439,24 @@ function renderInfo() {
     head.className = 'head';
     const color = document.createElement('input');
     color.type = 'color'; color.title = 'Color';
-    color.value = '#' + m.mesh.material.color.getHexString();
-    color.addEventListener('input', () => m.mesh.material.color.set(color.value));
+    color.value = '#' + m.baseColor.getHexString();
+    color.addEventListener('input', () => { m.baseColor.set(color.value); applyColors(m); });
     const name = document.createElement('b');
     name.textContent = m.name; name.title = m.name;
+    head.append(color, name);
+    if (m.rotated) {
+      const undo = document.createElement('button');
+      undo.className = 'icon'; undo.textContent = '↺'; undo.title = 'Restore original orientation';
+      undo.addEventListener('click', () => restoreOrientation(m));
+      head.append(undo);
+    }
     const eye = document.createElement('button');
     eye.className = 'icon'; eye.textContent = m.mesh.visible ? 'Hide' : 'Show';
     eye.addEventListener('click', () => { m.mesh.visible = !m.mesh.visible; updateDimsVisibility(m); renderInfo(); });
     const del = document.createElement('button');
     del.className = 'icon'; del.textContent = '✕'; del.title = 'Remove';
     del.addEventListener('click', () => { removeModel(m); layout(); });
-    head.append(color, name, eye, del);
+    head.append(eye, del);
 
     const tris = m.mesh.geometry.attributes.position.count / 3;
     const cm3 = m.volume / 1000;
@@ -326,11 +467,27 @@ function renderInfo() {
     meta2.className = 'meta';
     meta2.textContent = `Volume ${fmt(cm3)} cm³ · ≈ ${fmt(cm3 * density, 1)} g ${matName}`;
     row.append(head, meta1, meta2);
+    if (showOverhangs) {
+      const o = document.createElement('div');
+      o.className = 'meta overhang';
+      o.textContent = m.overhangArea > 0.5
+        ? `Overhangs > 45°: ${fmt(m.overhangArea / 100)} cm² (needs support)`
+        : 'No overhangs > 45°';
+      row.append(o);
+    }
+    if (bed) {
+      const f = document.createElement('div');
+      const ok = fitsOnBed(m);
+      f.className = 'meta ' + (ok ? 'ok' : 'bad');
+      f.textContent = ok ? `✓ Fits on ${bed.name}` : `⚠ Too large for ${bed.name} (${bed.size.join(' × ')} mm)`;
+      row.append(f);
+    }
     info.append(row);
   }
   const note = document.createElement('div');
   note.className = 'note';
-  note.textContent = 'Weight assumes a solid print (100% infill) and a closed mesh.';
+  note.textContent = 'Weight assumes a solid print (100% infill) and a closed mesh.' +
+    (showOverhangs ? ' Red = surface steeper than 45° that needs support.' : '');
   info.append(note);
 }
 
@@ -377,6 +534,30 @@ toggle('dims', () => {
   models.forEach(updateDimsVisibility);
   return showDims;
 });
+toggle('overhangs', () => {
+  showOverhangs = !showOverhangs;
+  models.forEach(applyColors);
+  renderInfo();
+  return showOverhangs;
+});
+
+const bedSelect = document.getElementById('bed');
+BEDS.forEach((b, i) => bedSelect.add(new Option(b.name, i)));
+bedSelect.addEventListener('change', () => {
+  const b = BEDS[bedSelect.value];
+  if (b.custom) {
+    const answer = prompt('Build volume in mm (width × depth × height):', bed ? bed.size.join(' x ') : '200 x 200 x 200');
+    const nums = (answer || '').match(/\d+(\.\d+)?/g)?.map(Number);
+    if (!nums || nums.length < 3 || nums.some(n => n <= 0)) { bedSelect.value = bed ? BEDS.findIndex(x => x.name === bed.name) : 0; return; }
+    bed = { name: 'Custom printer', size: nums.slice(0, 3) };
+    if (bedSelect.value < 0) bedSelect.value = BEDS.length - 1;
+  } else {
+    bed = b.size ? { name: b.name, size: b.size } : null;
+  }
+  buildBed();
+  layout();
+});
+
 toggle('wire', () => {
   wireframe = !wireframe;
   models.forEach(applyMaterialMode);
@@ -415,8 +596,8 @@ function clearMeasurements() {
   pending = null;
 }
 
-// point on the visible models under the pointer, snapped to a nearby corner
-function pickPoint(ev) {
+// first visible model surface under the pointer
+function pickHit(ev) {
   const rect = renderer.domElement.getBoundingClientRect();
   const ndc = new THREE.Vector2(
     ((ev.clientX - rect.left) / rect.width) * 2 - 1,
@@ -424,8 +605,14 @@ function pickPoint(ev) {
   );
   raycaster.setFromCamera(ndc, camera);
   const hits = raycaster.intersectObjects(models.filter(m => m.mesh.visible).map(m => m.mesh), false);
-  if (!hits.length) return null;
-  const hit = hits[0];
+  return hits.length ? { hit: hits[0], ndc, rect } : null;
+}
+
+// point on the visible models under the pointer, snapped to a nearby corner
+function pickPoint(ev) {
+  const picked = pickHit(ev);
+  if (!picked) return null;
+  const { hit, ndc, rect } = picked;
   const pos = hit.object.geometry.attributes.position;
   let best = hit.point.clone(), bestDist = SNAP_PX;
   for (const i of [hit.face.a, hit.face.b, hit.face.c]) {
@@ -450,20 +637,47 @@ function addMeasurement(a, b) {
   measureGroup.add(label);
 }
 
+// Measure and Lay flat both use clicks on the model, so only one can be on at a time
+let layingFlat = false;
+const HINTS = {
+  measure: 'Click two points on a model to measure · snaps to nearby corners · Esc cancels',
+  layflat: 'Click a face to put it flat on the bed · ↺ in the model panel restores the orientation',
+};
+function updateClickMode() {
+  document.body.classList.toggle('measuring', measuring || layingFlat);
+  document.getElementById('measure').classList.toggle('on', measuring);
+  document.getElementById('layflat').classList.toggle('on', layingFlat);
+  const hint = document.getElementById('hint');
+  hint.hidden = !(measuring || layingFlat);
+  hint.textContent = measuring ? HINTS.measure : layingFlat ? HINTS.layflat : '';
+}
 function setMeasuring(on) {
   measuring = on;
-  document.body.classList.toggle('measuring', on);
-  document.getElementById('hint').hidden = !on;
+  if (on) layingFlat = false;
   if (!on) clearMeasurements();
+  updateClickMode();
+  return on;
+}
+function setLayingFlat(on) {
+  layingFlat = on;
+  if (on && measuring) setMeasuring(false);
+  updateClickMode();
   return on;
 }
 toggle('measure', () => setMeasuring(!measuring));
+toggle('layflat', () => setLayingFlat(!layingFlat));
 
-// a click (not a drag to rotate) places a point
+// a click (not a drag to rotate) places a point or picks a face
 let downAt = null;
 renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
 renderer.domElement.addEventListener('pointerup', e => {
-  if (!measuring || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
+  if (!downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
+  if (layingFlat) {
+    const picked = pickHit(e);
+    if (picked) layFlat(models.find(m => m.mesh === picked.hit.object), picked.hit.face.normal);
+    return;
+  }
+  if (!measuring) return;
   const p = pickPoint(e);
   if (!p) return;
   if (!pending) {
