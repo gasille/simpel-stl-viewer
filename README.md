@@ -38,3 +38,7 @@ model meteen toont, zet dan vóór `<script type="importmap">` een script dat
 ```
 
 Eén object in plaats van een lijst mag ook.
+
+## Licentie
+
+[MIT](LICENSE). three.js valt onder zijn eigen MIT-licentie.
