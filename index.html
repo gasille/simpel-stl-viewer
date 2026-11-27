@@ -33,6 +33,12 @@
   #labels { position:fixed; inset:0; pointer-events:none; }
   .dim-label { font:11px ui-monospace, Consolas, monospace; color:#fff; background:#000a; padding:1px 5px;
                border-radius:4px; white-space:nowrap; }
+  .measure-label { background:#3a2f00e6; color:#ffd54a; border:1px solid #ffd54a88; text-align:center; line-height:1.35; }
+  .measure-label small { color:#e6d9a8; font-size:10px; }
+  body.measuring #view canvas { cursor:crosshair; }
+  #hint { position:fixed; right:12px; bottom:12px; background:var(--panel); color:var(--fg); padding:6px 10px;
+          border-radius:8px; font-size:12px; max-width:calc(100% - 24px); backdrop-filter:blur(6px); }
+  #hint[hidden] { display:none; }
   @media (max-width: 600px) {
     #bar { gap:6px; padding:6px; }
     button, label.btn, select { padding:5px 8px; font-size:13px; }
@@ -52,6 +58,7 @@
   <button id="clear">Clear</button>
   <button id="overlay" title="Place all models on top of each other, semi-transparent">Overlay</button>
   <button id="dims" title="Show length, width and height of each model">Dimensions</button>
+  <button id="measure" title="Click two points on a model to measure the distance">Measure</button>
   <button id="wire">Wireframe</button>
   <button id="grid" class="on">Grid</button>
   <button id="axes">Axes</button>
@@ -66,6 +73,7 @@
   </select>
 </div>
 <div id="info">No model loaded</div>
+<div id="hint" hidden>Click two points on a model to measure · snaps to nearby corners · Esc cancels</div>
 
 <script type="importmap">
 { "imports": {
@@ -237,6 +245,7 @@ function clearModels() {
 
 // side by side along X at the same scale, or all at the origin in overlay mode
 function layout() {
+  clearMeasurements();          // models may move, so old measurements would be wrong
   if (!models.length) {
     fitState = null;
     document.getElementById('info').textContent = 'No model loaded';
@@ -377,6 +386,101 @@ toggle('wire', () => {
 toggle('grid', () => (grid.visible = !grid.visible));
 toggle('axes', () => (axes.visible = !axes.visible));
 document.getElementById('reset').addEventListener('click', resetView);
+
+// ---- measuring: click two points on a model ----
+const raycaster = new THREE.Raycaster();
+const measureGroup = new THREE.Group();
+scene.add(measureGroup);
+const markerGeom = new THREE.SphereGeometry(1, 16, 12);
+const markerMat = new THREE.MeshBasicMaterial({ color: 0xffd54a, depthTest: false });
+const measureLineMat = new THREE.LineBasicMaterial({ color: 0xffd54a, depthTest: false });
+const SNAP_PX = 12;           // snap to a triangle corner within this many screen pixels
+let measuring = false;
+let pending = null;           // first point of a measurement in progress
+
+function addMarker(p) {
+  const s = new THREE.Mesh(markerGeom, markerMat);
+  s.scale.setScalar((fitState ? fitState.radius : 50) * 0.012);
+  s.position.copy(p);
+  s.renderOrder = 999;
+  measureGroup.add(s);
+  return s;
+}
+
+function clearMeasurements() {
+  measureGroup.traverse(o => {
+    if (o.isCSS2DObject) o.element.remove();
+    else if (o.isLine) o.geometry.dispose();
+  });
+  measureGroup.clear();
+  pending = null;
+}
+
+// point on the visible models under the pointer, snapped to a nearby corner
+function pickPoint(ev) {
+  const rect = renderer.domElement.getBoundingClientRect();
+  const ndc = new THREE.Vector2(
+    ((ev.clientX - rect.left) / rect.width) * 2 - 1,
+    -((ev.clientY - rect.top) / rect.height) * 2 + 1
+  );
+  raycaster.setFromCamera(ndc, camera);
+  const hits = raycaster.intersectObjects(models.filter(m => m.mesh.visible).map(m => m.mesh), false);
+  if (!hits.length) return null;
+  const hit = hits[0];
+  const pos = hit.object.geometry.attributes.position;
+  let best = hit.point.clone(), bestDist = SNAP_PX;
+  for (const i of [hit.face.a, hit.face.b, hit.face.c]) {
+    const v = hit.object.localToWorld(new THREE.Vector3().fromBufferAttribute(pos, i));
+    const s = v.clone().project(camera);
+    const d = Math.hypot((s.x - ndc.x) * rect.width / 2, (s.y - ndc.y) * rect.height / 2);
+    if (d < bestDist) { bestDist = d; best = v; }
+  }
+  return best;
+}
+
+function addMeasurement(a, b) {
+  const line = new THREE.Line(new THREE.BufferGeometry().setFromPoints([a, b]), measureLineMat);
+  line.renderOrder = 998;
+  measureGroup.add(line);
+  const d = new THREE.Vector3().subVectors(b, a);
+  const el = document.createElement('div');
+  el.className = 'dim-label measure-label';
+  el.innerHTML = `${fmt(d.length())} mm<br><small>Δx ${fmt(Math.abs(d.x))} · Δy ${fmt(Math.abs(d.y))} · Δz ${fmt(Math.abs(d.z))}</small>`;
+  const label = new CSS2DObject(el);
+  label.position.copy(a).add(b).multiplyScalar(0.5);
+  measureGroup.add(label);
+}
+
+function setMeasuring(on) {
+  measuring = on;
+  document.body.classList.toggle('measuring', on);
+  document.getElementById('hint').hidden = !on;
+  if (!on) clearMeasurements();
+  return on;
+}
+toggle('measure', () => setMeasuring(!measuring));
+
+// a click (not a drag to rotate) places a point
+let downAt = null;
+renderer.domElement.addEventListener('pointerdown', e => { downAt = [e.clientX, e.clientY]; });
+renderer.domElement.addEventListener('pointerup', e => {
+  if (!measuring || !downAt || Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) > 5) return;
+  const p = pickPoint(e);
+  if (!p) return;
+  if (!pending) {
+    pending = { point: p, marker: addMarker(p) };
+  } else {
+    addMarker(p);
+    addMeasurement(pending.point, p);
+    pending = null;
+  }
+});
+addEventListener('keydown', e => {
+  if (e.key === 'Escape' && pending) {
+    measureGroup.remove(pending.marker);
+    pending = null;
+  }
+});
 
 // drag & drop (adds models to the ones already shown)
 addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('dragging'); });

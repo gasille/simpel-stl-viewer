@@ -18,10 +18,16 @@ Multiple models are placed side by side, at the same scale, each in its own colo
 - **Left mouse button**: rotate
 - **Right mouse button**: pan
 - **Scroll wheel**: zoom
-- Buttons: Clear, Overlay, Dimensions, Wireframe, Grid, Axes, Reset view
+- Buttons: Clear, Overlay, Dimensions, Measure, Wireframe, Grid, Axes, Reset view
 
 **Dimensions** draws a bounding box around each model with dimension lines and
 labels for its length (X), width (Y) and height (Z) in mm.
+
+**Measure** lets you click two points on a model to see the distance between
+them, plus the difference along X, Y and Z. A point snaps to a nearby corner of
+the mesh, so you can measure edges precisely. You can still rotate and zoom while
+measuring, add as many measurements as you like, and press **Esc** to cancel a
+half-finished one. Turning Measure off clears all measurements.
 
 ### Comparing models
 
