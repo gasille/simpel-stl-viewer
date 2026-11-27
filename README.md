@@ -18,7 +18,10 @@ Multiple models are placed side by side, at the same scale, each in its own colo
 - **Left mouse button**: rotate
 - **Right mouse button**: pan
 - **Scroll wheel**: zoom
-- Buttons: Clear, Overlay, Wireframe, Grid, Axes, Reset view
+- Buttons: Clear, Overlay, Dimensions, Wireframe, Grid, Axes, Reset view
+
+**Dimensions** draws a bounding box around each model with dimension lines and
+labels for its length (X), width (Y) and height (Z) in mm.
 
 ### Comparing models
 
