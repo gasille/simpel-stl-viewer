@@ -2,6 +2,8 @@
 
 Een simpele STL-viewer in één HTML-bestand, gebouwd met [three.js](https://threejs.org/).
 
+![Twee modellen naast elkaar in de STL-viewer](docs/screenshot.png)
+
 **Online gebruiken:** https://gasille.github.io/simpel-stl-viewer/
 
 Je bestanden blijven op je eigen computer: de viewer leest ze in de browser en uploadt niets.

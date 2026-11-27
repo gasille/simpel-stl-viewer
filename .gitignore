@@ -4,3 +4,6 @@
 *.jpeg
 *.png
 *.webp
+
+# behalve afbeeldingen voor de documentatie
+!docs/*
