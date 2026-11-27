@@ -1,9 +1,9 @@
-# modellen en afbeeldingen horen niet in deze repo
+# models and images do not belong in this repo
 *.stl
 *.jpg
 *.jpeg
 *.png
 *.webp
 
-# behalve afbeeldingen voor de documentatie
+# except images for the documentation
 !docs/*

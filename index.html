@@ -1,5 +1,5 @@
 <!doctype html>
-<html lang="nl">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -27,17 +27,17 @@
 </head>
 <body>
 <div id="view"></div>
-<div id="drop">Sleep een of meer .stl-bestanden hierheen of klik op "Open STL"</div>
+<div id="drop">Drop one or more .stl files here or click "Open STL"</div>
 
 <div id="bar">
   <label class="btn">Open STL<input id="file" type="file" accept=".stl" multiple></label>
-  <button id="clear">Wissen</button>
+  <button id="clear">Clear</button>
   <button id="wire">Wireframe</button>
-  <button id="grid" class="on">Raster</button>
-  <button id="axes">Assen</button>
+  <button id="grid" class="on">Grid</button>
+  <button id="axes">Axes</button>
   <button id="reset">Reset view</button>
 </div>
-<div id="info">Geen model geladen</div>
+<div id="info">No model loaded</div>
 
 <script type="importmap">
 { "imports": {
@@ -60,7 +60,7 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x1e1f22);
 
 const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100000);
-camera.up.set(0, 0, 1);               // STL is meestal Z-up
+camera.up.set(0, 0, 1);               // STL files are usually Z-up
 camera.position.set(100, -150, 100);
 
 const controls = new OrbitControls(camera, renderer.domElement);
@@ -91,7 +91,7 @@ function addModel(buffer, name) {
   const bb = geom.boundingBox;
   const size = new THREE.Vector3(); bb.getSize(size);
   const center = new THREE.Vector3(); bb.getCenter(center);
-  // centreer in XY, zet onderkant op Z=0
+  // center in XY, put the bottom at Z=0
   geom.translate(-center.x, -center.y, -bb.min.z);
   const material = new THREE.MeshStandardMaterial({
     color: PALETTE[models.length % PALETTE.length], metalness: 0.1, roughness: 0.6,
@@ -106,12 +106,12 @@ function clearModels() {
   for (const m of models) { scene.remove(m.mesh); m.mesh.geometry.dispose(); m.mesh.material.dispose(); }
   models.length = 0;
   fitState = null;
-  document.getElementById('info').textContent = 'Geen model geladen';
+  document.getElementById('info').textContent = 'No model loaded';
   document.getElementById('drop').style.display = '';
   document.title = 'STL Viewer';
 }
 
-// zet alle modellen naast elkaar langs X, op dezelfde schaal
+// place all models side by side along X, at the same scale
 function layout() {
   if (!models.length) return;
   const maxDim = Math.max(...models.map(m => Math.max(m.size.x, m.size.y, m.size.z))) || 1;
@@ -126,7 +126,7 @@ function layout() {
   const maxZ = Math.max(...models.map(m => m.size.z));
   const span = Math.max(totalW, maxY, maxZ);
 
-  // raster en assen schalen naar de hele scène
+  // scale grid and axes to the whole scene
   const step = Math.pow(10, Math.floor(Math.log10(span / 2)));
   const gridSize = Math.ceil((span * 1.6) / step) * step;
   const wasVisible = grid.visible;
@@ -143,7 +143,7 @@ function layout() {
   document.getElementById('info').innerHTML = models.map(m => {
     const tris = m.mesh.geometry.attributes.position.count / 3;
     return `<span class="sw" style="background:${hex(m.mesh.material.color.getHex())}"></span><b>${escapeHtml(m.name)}</b>\n` +
-      `   ${m.size.x.toFixed(2)} × ${m.size.y.toFixed(2)} × ${m.size.z.toFixed(2)} mm · ${tris.toLocaleString('nl-NL')} driehoeken`;
+      `   ${m.size.x.toFixed(2)} × ${m.size.y.toFixed(2)} × ${m.size.z.toFixed(2)} mm · ${tris.toLocaleString('en-US')} triangles`;
   }).join('\n');
   document.getElementById('drop').style.display = 'none';
   document.title = models.map(m => m.name).join(' + ') + ' – STL Viewer';
@@ -166,7 +166,7 @@ async function readFiles(fileList) {
   const files = [...fileList].filter(f => /\.stl$/i.test(f.name));
   for (const f of files) {
     try { addModel(await f.arrayBuffer(), f.name); }
-    catch (e) { alert(`Kon ${f.name} niet lezen: ${e.message}`); }
+    catch (e) { alert(`Could not read ${f.name}: ${e.message}`); }
   }
   layout();
 }
@@ -187,7 +187,7 @@ toggle('grid', () => (grid.visible = !grid.visible));
 toggle('axes', () => (axes.visible = !axes.visible));
 document.getElementById('reset').addEventListener('click', resetView);
 
-// drag & drop (voegt modellen toe aan wat er al staat)
+// drag & drop (adds models to the ones already shown)
 addEventListener('dragover', e => { e.preventDefault(); document.body.classList.add('dragging'); });
 addEventListener('dragleave', e => { if (!e.relatedTarget) document.body.classList.remove('dragging'); });
 addEventListener('drop', e => {
@@ -202,8 +202,8 @@ addEventListener('resize', () => {
 
 renderer.setAnimationLoop(() => { controls.update(); renderer.render(scene, camera); });
 
-// automatisch laden van ingebedde modellen:
-// window.STL_EMBED = { name, base64 }  of  [{ name, base64 }, ...]
+// auto-load embedded models:
+// window.STL_EMBED = { name, base64 }  or  [{ name, base64 }, ...]
 if (window.STL_EMBED) {
   for (const { name, base64 } of [].concat(window.STL_EMBED)) {
     const bin = atob(base64);

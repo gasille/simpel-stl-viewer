@@ -1,46 +1,46 @@
 # STL Viewer
 
-Een simpele STL-viewer in één HTML-bestand, gebouwd met [three.js](https://threejs.org/).
+A simple STL viewer in a single HTML file, built with [three.js](https://threejs.org/).
 
-![Twee modellen naast elkaar in de STL-viewer](docs/screenshot.png)
+![Two models side by side in the STL viewer](docs/screenshot.png)
 
-**Online gebruiken:** https://gasille.github.io/simpel-stl-viewer/
+**Use it online:** https://gasille.github.io/simpel-stl-viewer/
 
-Je bestanden blijven op je eigen computer: de viewer leest ze in de browser en uploadt niets.
+Your files stay on your own computer: the viewer reads them in the browser and uploads nothing.
 
-## Gebruik
+## Usage
 
-1. Open de [online viewer](https://gasille.github.io/simpel-stl-viewer/), of open `index.html` lokaal in een browser (dubbelklikken is genoeg).
-2. Klik op **Open STL** of sleep een of meer `.stl`-bestanden in het venster.
+1. Open the [online viewer](https://gasille.github.io/simpel-stl-viewer/), or open `index.html` locally in a browser (double-clicking is enough).
+2. Click **Open STL** or drag one or more `.stl` files into the window.
 
-Meerdere modellen worden naast elkaar gezet, op dezelfde schaal en elk in een eigen kleur.
+Multiple models are placed side by side, at the same scale, each in its own color.
 
-- **Linkermuisknop**: draaien
-- **Rechtermuisknop**: verschuiven
-- **Scrollwiel**: zoomen
-- Knoppen: Wissen, Wireframe, Raster, Assen, Reset view
+- **Left mouse button**: rotate
+- **Right mouse button**: pan
+- **Scroll wheel**: zoom
+- Buttons: Clear, Wireframe, Grid, Axes, Reset view
 
-Linksonder staan per model de afmetingen (mm) en het aantal driehoeken.
-Binaire en ASCII-STL worden allebei ondersteund.
+The bottom-left panel shows the dimensions (mm) and triangle count of each model.
+Both binary and ASCII STL are supported.
 
-> three.js wordt van jsdelivr geladen, dus je hebt een internetverbinding nodig.
+> three.js is loaded from jsdelivr, so you need an internet connection.
 
-## Modellen inbedden
+## Embedding models
 
-Een browser mag een `.stl` niet zelf van schijf laden. Wil je een pagina die een
-model meteen toont, zet dan vóór `<script type="importmap">` een script dat
-`window.STL_EMBED` vult:
+A browser is not allowed to load an `.stl` from disk by itself. If you want a page
+that shows a model right away, add a script before `<script type="importmap">` that
+sets `window.STL_EMBED`:
 
 ```html
 <script>
   window.STL_EMBED = [
-    { name: "model.stl", base64: "<base64 van het STL-bestand>" }
+    { name: "model.stl", base64: "<base64 of the STL file>" }
   ];
 </script>
 ```
 
-Eén object in plaats van een lijst mag ook.
+A single object instead of an array also works.
 
-## Licentie
+## License
 
-[MIT](LICENSE). three.js valt onder zijn eigen MIT-licentie.
+[MIT](LICENSE). three.js is covered by its own MIT license.
