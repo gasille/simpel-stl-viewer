@@ -4,13 +4,13 @@ A simple STL viewer in a single HTML file, built with [three.js](https://threejs
 
 ![Two models side by side in the STL viewer](docs/screenshot.png)
 
-**Use it online:** https://gasille.github.io/simpel-stl-viewer/
+**Use it online:** https://gasille.github.io/simple-stl-viewer/
 
 Your files stay on your own computer: the viewer reads them in the browser and uploads nothing.
 
 ## Usage
 
-1. Open the [online viewer](https://gasille.github.io/simpel-stl-viewer/), or open `index.html` locally in a browser (double-clicking is enough).
+1. Open the [online viewer](https://gasille.github.io/simple-stl-viewer/), or open `index.html` locally in a browser (double-clicking is enough).
 2. Click **Open STL** or drag one or more `.stl` files into the window.
 
 Multiple models are placed side by side, at the same scale, each in its own color.
