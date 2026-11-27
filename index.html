@@ -163,8 +163,15 @@ function makeDimensions(size) {
   label(`Z ${L(sz)}`, [zx, zy, sz / 2]);
 
   g.add(new THREE.LineSegments(new THREE.BufferGeometry().setFromPoints(pts), dimLineMat));
-  g.visible = showDims;
   return g;
+}
+
+// CSS2DRenderer only looks at each label's own .visible (not its parents'),
+// so set it on every label explicitly
+function updateDimsVisibility(m) {
+  const v = showDims && m.mesh.visible;
+  m.dims.visible = v;
+  m.dims.traverse(o => { if (o.isCSS2DObject) o.visible = v; });
 }
 let fitState = null;
 let colorIndex = 0;
@@ -209,6 +216,7 @@ function addModel(buffer, name) {
   scene.add(mesh);
   const m = { name, mesh, size, dims, volume: meshVolume(geom) };
   applyMaterialMode(m);
+  updateDimsVisibility(m);
   models.push(m);
 }
 
@@ -295,7 +303,7 @@ function renderInfo() {
     name.textContent = m.name; name.title = m.name;
     const eye = document.createElement('button');
     eye.className = 'icon'; eye.textContent = m.mesh.visible ? 'Hide' : 'Show';
-    eye.addEventListener('click', () => { m.mesh.visible = !m.mesh.visible; renderInfo(); });
+    eye.addEventListener('click', () => { m.mesh.visible = !m.mesh.visible; updateDimsVisibility(m); renderInfo(); });
     const del = document.createElement('button');
     del.className = 'icon'; del.textContent = '✕'; del.title = 'Remove';
     del.addEventListener('click', () => { removeModel(m); layout(); });
@@ -358,7 +366,7 @@ toggle('overlay', () => {
 });
 toggle('dims', () => {
   showDims = !showDims;
-  models.forEach(m => (m.dims.visible = showDims));
+  models.forEach(updateDimsVisibility);
   return showDims;
 });
 toggle('wire', () => {
