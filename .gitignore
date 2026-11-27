@@ -1,0 +1,6 @@
+# modellen en afbeeldingen horen niet in deze repo
+*.stl
+*.jpg
+*.jpeg
+*.png
+*.webp
