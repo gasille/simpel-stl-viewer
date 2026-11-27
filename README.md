@@ -2,9 +2,13 @@
 
 Een simpele STL-viewer in één HTML-bestand, gebouwd met [three.js](https://threejs.org/).
 
+**Online gebruiken:** https://gasille.github.io/simpel-stl-viewer/
+
+Je bestanden blijven op je eigen computer: de viewer leest ze in de browser en uploadt niets.
+
 ## Gebruik
 
-1. Open `index.html` in een browser (dubbelklikken is genoeg).
+1. Open de [online viewer](https://gasille.github.io/simpel-stl-viewer/), of open `index.html` lokaal in een browser (dubbelklikken is genoeg).
 2. Klik op **Open STL** of sleep een of meer `.stl`-bestanden in het venster.
 
 Meerdere modellen worden naast elkaar gezet, op dezelfde schaal en elk in een eigen kleur.
