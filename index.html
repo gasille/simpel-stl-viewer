@@ -11,17 +11,25 @@
   #view { position:fixed; inset:0; }
   #bar { position:fixed; top:12px; left:12px; display:flex; gap:8px; flex-wrap:wrap; align-items:center;
          background:var(--panel); padding:8px; border-radius:10px; backdrop-filter:blur(6px); max-width:calc(100% - 24px); }
-  button, label.btn { background:#3a3d44; color:var(--fg); border:1px solid #4a4d55; border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
-  button:hover, label.btn:hover { border-color:var(--accent); }
+  button, label.btn, select { background:#3a3d44; color:var(--fg); border:1px solid #4a4d55; border-radius:6px; padding:6px 10px; cursor:pointer; font:inherit; }
+  button:hover, label.btn:hover, select:hover { border-color:var(--accent); }
   button.on { background:var(--accent); border-color:var(--accent); color:#000; }
   input[type=file] { display:none; }
-  input[type=color] { width:32px; height:30px; padding:0; border:none; background:none; cursor:pointer; }
-  #info .sw { display:inline-block; width:10px; height:10px; border-radius:2px; margin-right:6px; }
-  #info b { color:var(--fg); font-weight:600; }
   #info { position:fixed; bottom:12px; left:12px; background:var(--panel); padding:8px 12px; border-radius:10px;
-          font:12px ui-monospace, Consolas, monospace; color:var(--muted); white-space:pre; }
+          font:12px ui-monospace, Consolas, monospace; color:var(--muted); max-width:calc(100% - 24px);
+          max-height:45vh; overflow:auto; backdrop-filter:blur(6px); }
+  #info .model + .model { margin-top:8px; padding-top:8px; border-top:1px solid #ffffff14; }
+  #info .head { display:flex; align-items:center; gap:6px; }
+  #info .head b { color:var(--fg); font-weight:600; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #info .meta { padding-left:24px; white-space:nowrap; }
+  #info .model.hidden .meta, #info .model.hidden b { opacity:.45; }
+  #info input[type=color] { width:18px; height:18px; padding:0; border:none; border-radius:3px; background:none; cursor:pointer; }
+  #info input[type=color]::-webkit-color-swatch-wrapper { padding:0; }
+  #info input[type=color]::-webkit-color-swatch { border:none; border-radius:3px; }
+  #info .icon { padding:1px 6px; font-size:12px; line-height:16px; }
+  #info .note { margin-top:8px; font-size:11px; opacity:.8; }
   #drop { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; pointer-events:none;
-          font-size:20px; color:var(--muted); }
+          font-size:20px; color:var(--muted); text-align:center; padding:16px; }
   body.dragging #drop { background:#4ea1ff22; outline:3px dashed var(--accent); outline-offset:-12px; color:var(--fg); }
 </style>
 </head>
@@ -32,10 +40,19 @@
 <div id="bar">
   <label class="btn">Open STL<input id="file" type="file" accept=".stl" multiple></label>
   <button id="clear">Clear</button>
+  <button id="overlay" title="Place all models on top of each other, semi-transparent">Overlay</button>
   <button id="wire">Wireframe</button>
   <button id="grid" class="on">Grid</button>
   <button id="axes">Axes</button>
   <button id="reset">Reset view</button>
+  <select id="material" title="Material used for the weight estimate">
+    <option value="1.24">PLA</option>
+    <option value="1.27">PETG</option>
+    <option value="1.04">ABS</option>
+    <option value="1.07">ASA</option>
+    <option value="1.21">TPU</option>
+    <option value="1.15">Resin</option>
+  </select>
 </div>
 <div id="info">No model loaded</div>
 
@@ -81,9 +98,34 @@ axes.visible = false;
 scene.add(axes);
 
 const PALETTE = [0x9fb4c7, 0xe0a458, 0x7fc28e, 0xd07a9b, 0xb39ddb, 0x6cc4d4];
-const models = [];          // { name, mesh, size }
+const models = [];          // { name, mesh, size, volume (mm³) }
 let wireframe = false;
+let overlay = false;
 let fitState = null;
+let colorIndex = 0;
+
+// volume of a closed mesh: sum of signed tetrahedra (origin, a, b, c)
+function meshVolume(geom) {
+  const p = geom.attributes.position.array;
+  let v = 0;
+  for (let i = 0; i < p.length; i += 9) {
+    const ax = p[i], ay = p[i + 1], az = p[i + 2];
+    const bx = p[i + 3], by = p[i + 4], bz = p[i + 5];
+    const cx = p[i + 6], cy = p[i + 7], cz = p[i + 8];
+    v += ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx);
+  }
+  return Math.abs(v) / 6;
+}
+
+function applyMaterialMode(m) {
+  const mat = m.mesh.material;
+  mat.wireframe = wireframe;
+  mat.transparent = overlay;
+  mat.opacity = overlay ? 0.45 : 1;
+  mat.depthWrite = !overlay;
+  mat.side = overlay ? THREE.DoubleSide : THREE.FrontSide;
+  mat.needsUpdate = true;
+}
 
 function addModel(buffer, name) {
   const geom = new STLLoader().parse(buffer);
@@ -94,33 +136,48 @@ function addModel(buffer, name) {
   // center in XY, put the bottom at Z=0
   geom.translate(-center.x, -center.y, -bb.min.z);
   const material = new THREE.MeshStandardMaterial({
-    color: PALETTE[models.length % PALETTE.length], metalness: 0.1, roughness: 0.6,
-    flatShading: true, wireframe
+    color: PALETTE[colorIndex++ % PALETTE.length], metalness: 0.1, roughness: 0.6, flatShading: true
   });
   const mesh = new THREE.Mesh(geom, material);
   scene.add(mesh);
-  models.push({ name, mesh, size });
+  const m = { name, mesh, size, volume: meshVolume(geom) };
+  applyMaterialMode(m);
+  models.push(m);
+}
+
+function removeModel(m) {
+  scene.remove(m.mesh); m.mesh.geometry.dispose(); m.mesh.material.dispose();
+  models.splice(models.indexOf(m), 1);
 }
 
 function clearModels() {
-  for (const m of models) { scene.remove(m.mesh); m.mesh.geometry.dispose(); m.mesh.material.dispose(); }
-  models.length = 0;
-  fitState = null;
-  document.getElementById('info').textContent = 'No model loaded';
-  document.getElementById('drop').style.display = '';
-  document.title = 'STL Viewer';
+  while (models.length) removeModel(models[0]);
+  colorIndex = 0;
+  layout();
 }
 
-// place all models side by side along X, at the same scale
+// side by side along X at the same scale, or all at the origin in overlay mode
 function layout() {
-  if (!models.length) return;
+  if (!models.length) {
+    fitState = null;
+    document.getElementById('info').textContent = 'No model loaded';
+    document.getElementById('drop').style.display = '';
+    document.title = 'STL Viewer';
+    return;
+  }
   const maxDim = Math.max(...models.map(m => Math.max(m.size.x, m.size.y, m.size.z))) || 1;
-  const gap = maxDim * 0.25;
-  const totalW = models.reduce((s, m) => s + m.size.x, 0) + gap * (models.length - 1);
-  let x = -totalW / 2;
-  for (const m of models) {
-    m.mesh.position.x = x + m.size.x / 2;
-    x += m.size.x + gap;
+  let totalW;
+  if (overlay) {
+    models.forEach(m => (m.mesh.position.x = 0));
+    totalW = Math.max(...models.map(m => m.size.x));
+  } else {
+    const gap = maxDim * 0.25;
+    totalW = models.reduce((s, m) => s + m.size.x, 0) + gap * (models.length - 1);
+    let x = -totalW / 2;
+    for (const m of models) {
+      m.mesh.position.x = x + m.size.x / 2;
+      x += m.size.x + gap;
+    }
   }
   const maxY = Math.max(...models.map(m => m.size.y));
   const maxZ = Math.max(...models.map(m => m.size.z));
@@ -138,19 +195,55 @@ function layout() {
 
   fitState = { target: new THREE.Vector3(0, 0, maxZ / 2), dist: span * 1.6 };
   resetView();
-
-  const hex = c => '#' + c.toString(16).padStart(6, '0');
-  document.getElementById('info').innerHTML = models.map(m => {
-    const tris = m.mesh.geometry.attributes.position.count / 3;
-    return `<span class="sw" style="background:${hex(m.mesh.material.color.getHex())}"></span><b>${escapeHtml(m.name)}</b>\n` +
-      `   ${m.size.x.toFixed(2)} × ${m.size.y.toFixed(2)} × ${m.size.z.toFixed(2)} mm · ${tris.toLocaleString('en-US')} triangles`;
-  }).join('\n');
+  renderInfo();
   document.getElementById('drop').style.display = 'none';
   document.title = models.map(m => m.name).join(' + ') + ' – STL Viewer';
 }
 
-function escapeHtml(s) {
-  return s.replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+const fmt = (n, d = 2) => n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+
+function renderInfo() {
+  const info = document.getElementById('info');
+  if (!models.length) return;
+  const sel = document.getElementById('material');
+  const density = parseFloat(sel.value);              // g/cm³
+  const matName = sel.selectedOptions[0].textContent;
+  info.replaceChildren();
+  for (const m of models) {
+    const row = document.createElement('div');
+    row.className = 'model' + (m.mesh.visible ? '' : ' hidden');
+
+    const head = document.createElement('div');
+    head.className = 'head';
+    const color = document.createElement('input');
+    color.type = 'color'; color.title = 'Color';
+    color.value = '#' + m.mesh.material.color.getHexString();
+    color.addEventListener('input', () => m.mesh.material.color.set(color.value));
+    const name = document.createElement('b');
+    name.textContent = m.name; name.title = m.name;
+    const eye = document.createElement('button');
+    eye.className = 'icon'; eye.textContent = m.mesh.visible ? 'Hide' : 'Show';
+    eye.addEventListener('click', () => { m.mesh.visible = !m.mesh.visible; renderInfo(); });
+    const del = document.createElement('button');
+    del.className = 'icon'; del.textContent = '✕'; del.title = 'Remove';
+    del.addEventListener('click', () => { removeModel(m); layout(); });
+    head.append(color, name, eye, del);
+
+    const tris = m.mesh.geometry.attributes.position.count / 3;
+    const cm3 = m.volume / 1000;
+    const meta1 = document.createElement('div');
+    meta1.className = 'meta';
+    meta1.textContent = `${fmt(m.size.x)} × ${fmt(m.size.y)} × ${fmt(m.size.z)} mm · ${tris.toLocaleString('en-US')} triangles`;
+    const meta2 = document.createElement('div');
+    meta2.className = 'meta';
+    meta2.textContent = `Volume ${fmt(cm3)} cm³ · ≈ ${fmt(cm3 * density, 1)} g ${matName}`;
+    row.append(head, meta1, meta2);
+    info.append(row);
+  }
+  const note = document.createElement('div');
+  note.className = 'note';
+  note.textContent = 'Weight assumes a solid print (100% infill) and a closed mesh.';
+  info.append(note);
 }
 
 function resetView() {
@@ -163,24 +256,33 @@ function resetView() {
 }
 
 async function readFiles(fileList) {
-  const files = [...fileList].filter(f => /\.stl$/i.test(f.name));
-  for (const f of files) {
+  const files = [...fileList];
+  const skipped = files.filter(f => !/\.stl$/i.test(f.name)).map(f => f.name);
+  for (const f of files.filter(f => /\.stl$/i.test(f.name))) {
     try { addModel(await f.arrayBuffer(), f.name); }
     catch (e) { alert(`Could not read ${f.name}: ${e.message}`); }
   }
+  if (skipped.length) alert(`Skipped (not an .stl file): ${skipped.join(', ')}`);
   layout();
 }
 
 document.getElementById('file').addEventListener('change', e => { readFiles(e.target.files); e.target.value = ''; });
 document.getElementById('clear').addEventListener('click', clearModels);
+document.getElementById('material').addEventListener('change', renderInfo);
 
 const toggle = (id, fn) => {
   const b = document.getElementById(id);
   b.addEventListener('click', () => b.classList.toggle('on', fn()));
 };
+toggle('overlay', () => {
+  overlay = !overlay;
+  models.forEach(applyMaterialMode);
+  layout();
+  return overlay;
+});
 toggle('wire', () => {
   wireframe = !wireframe;
-  models.forEach(m => (m.mesh.material.wireframe = wireframe));
+  models.forEach(applyMaterialMode);
   return wireframe;
 });
 toggle('grid', () => (grid.visible = !grid.visible));
