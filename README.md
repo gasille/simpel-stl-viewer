@@ -2,7 +2,7 @@
 
 A simple STL viewer in a single HTML file, built with [three.js](https://threejs.org/).
 
-![Two models side by side in the STL viewer](docs/screenshot.png)
+![Two models side by side with dimensions and a measurement](docs/screenshot.png)
 
 **Use it online:** https://gasille.github.io/simple-stl-viewer/
 
