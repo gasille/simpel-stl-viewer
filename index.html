@@ -400,9 +400,11 @@ function layout() {
   }
   const maxY = Math.max(...models.map(m => m.size.y));
   const maxZ = Math.max(...models.map(m => m.size.z));
-  const span = Math.max(totalW, maxY, maxZ);
+  const sceneW = bed ? Math.max(totalW, bed.size[0]) : totalW;
+  const sceneD = bed ? Math.max(maxY, bed.size[1]) : maxY;
+  const span = Math.max(sceneW, sceneD, maxZ);
 
-  // scale grid and axes to the whole scene
+  // scale grid and axes to the whole scene (including the print bed)
   const step = Math.pow(10, Math.floor(Math.log10(span / 2)));
   const gridSize = Math.ceil((span * 1.6) / step) * step;
   const wasVisible = grid.visible;
@@ -413,8 +415,6 @@ function layout() {
   axes.scale.setScalar(maxDim / 50);
 
   // bounding sphere of the whole scene (including the print bed), used to frame it on any screen shape
-  const sceneW = bed ? Math.max(totalW, bed.size[0]) : totalW;
-  const sceneD = bed ? Math.max(maxY, bed.size[1]) : maxY;
   fitState = { target: new THREE.Vector3(0, 0, maxZ / 2), radius: 0.5 * Math.hypot(sceneW, sceneD, maxZ) };
   resetView();
   renderInfo();
